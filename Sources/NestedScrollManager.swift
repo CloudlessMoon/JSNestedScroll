@@ -16,13 +16,13 @@ internal final class NestedScrollManager {
         in nestedScrollView: NestedScrollView,
         didScrollHandler: @escaping NestedScrollDidScrollHandler
     ) {
-        let initializeHanlder = {
+        let initializeHandler = {
             let listener = NestedScrollListener()
             listener.bindingScrollView = scrollView
             scrollView.js_nestedScrollListener = listener
             return listener
         }
-        let scrollListener = scrollView.js_nestedScrollListener ?? initializeHanlder()
+        let scrollListener = scrollView.js_nestedScrollListener ?? initializeHandler()
         guard scrollListener.nestedScrollView != nestedScrollView else {
             return
         }
