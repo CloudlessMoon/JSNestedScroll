@@ -1,0 +1,50 @@
+disabled_rules:
+  - unused_closure_parameter
+  - unused_setter_value
+  - cyclomatic_complexity
+  - unneeded_synthesized_initializer
+opt_in_rules:
+  - let_var_whitespace
+  - operator_usage_whitespace
+analyzer_rules:
+  - unused_declaration
+  - unused_import
+included:
+  - ./
+  - ../Sources
+excluded:
+  - Pods
+identifier_name:
+  allowed_symbols: "_"
+  min_length: 1
+type_name:
+  allowed_symbols: "_"
+trailing_whitespace:
+  ignores_empty_lines: true
+line_length:
+  warning: 1800
+  error: 1800
+  ignores_urls: true
+  ignores_function_declarations: true
+  ignores_interpolated_strings: true
+  ignores_comments: true
+file_length:
+  warning: 500
+  error: 500
+  ignore_comment_only_lines: true
+function_body_length:
+  warning: 300
+  error: 300
+nesting:
+  type_level:
+    warning: 3
+    error: 3
+function_parameter_count:
+  warning: 5
+  error: 5
+large_tuple:
+  warning: 4
+  error: 4
+unused_optional_binding:
+  severity: error
+  ignore_optional_try: true

@@ -52,7 +52,7 @@ class NestedScrollViewController: QMUICommonViewController {
         self.nestedScrollView.middleView = self.middleView
         self.nestedScrollView.floatingView = self.floatingView
         self.nestedScrollView.contentView = self.contentView
-
+        
         self.nestedScrollView.mj_header = MJRefreshStateHeader { [unowned self] in
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: {
                 self.nestedScrollView.mj_header?.endRefreshing()
@@ -83,19 +83,6 @@ class NestedScrollViewController: QMUICommonViewController {
                                                    UIBarButtonItem.qmui_item(withTitle: "刷新", target: self, action: #selector(self.onPressRefresh))]
     }
     
-    @objc func onPressScroll() {
-        self.contentView.tableView.scrollToRow(at: IndexPath(item: 3, section: 0), at: .top, animated: true)
-    }
-    
-    @objc func onPressRefresh() {
-        self.contentView.numberOfRows = 50
-    }
-    
-    
-}
-
-extension NestedScrollViewController {
-    
     override var preferredStatusBarStyle: UIStatusBarStyle {
         if #available(iOS 13.0, *) {
             return .darkContent
@@ -114,6 +101,18 @@ extension NestedScrollViewController {
     
     override func qmui_navigationBarBackgroundImage() -> UIImage? {
         return UIImage.qmui_image(with: UIColor.white.withAlphaComponent(1.0))
+    }
+    
+}
+
+extension NestedScrollViewController {
+    
+    @objc private func onPressScroll() {
+        self.contentView.tableView.scrollToRow(at: IndexPath(item: 3, section: 0), at: .top, animated: true)
+    }
+    
+    @objc private func onPressRefresh() {
+        self.contentView.numberOfRows = 50
     }
     
 }

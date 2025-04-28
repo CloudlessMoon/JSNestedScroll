@@ -8,173 +8,230 @@
 import UIKit
 import JSCoreKit
 
-public final class NestedScrollView: UIScrollView {
+@objc(JSNestedScrollView)
+open class NestedScrollView: UIScrollView {
     
-    public static let automaticDimension: CGFloat = -1
+    @objc public static let automaticDimension: CGFloat = -1
     
-    public var headerView: NestedScrollViewScrollSubview? {
+    @objc public var headerView: (UIView & NestedScrollViewScrollSubview)? {
         didSet {
             self.addSubview(self.headerView, oldView: oldValue)
         }
     }
     
-    public var middleView: NestedScrollViewSupplementarySubview? {
+    @objc public var middleView: (UIView & NestedScrollViewSupplementarySubview)? {
         didSet {
             self.addSubview(self.middleView, oldView: oldValue)
         }
     }
     
-    public var floatingView: NestedScrollViewSupplementarySubview? {
+    @objc public var floatingView: (UIView & NestedScrollViewSupplementarySubview)? {
         didSet {
             self.addSubview(self.floatingView, oldView: oldValue)
         }
     }
     
-    public var floatingOffset: CGFloat = 0 {
+    @objc public var floatingOffset: CGFloat = 0 {
         didSet {
             guard oldValue != self.floatingOffset else {
                 return
             }
             
-            self.reload()
+            self.updateLayout()
         }
     }
     
-    public var contentView: NestedScrollViewScrollSubview? {
+    @objc dynamic public private(set) var isFloating: Bool = false
+    
+    @objc public var contentView: (UIView & NestedScrollViewScrollSubview)? {
         didSet {
             self.addSubview(self.contentView, oldView: oldValue)
         }
     }
     
-    public private(set) lazy var containerView: UIView = {
+    @objc public private(set) lazy var containerView: UIView = {
         return UIView()
     }()
     
-    public override weak var delegate: UIScrollViewDelegate? {
-        get {
-            return self.delegateProxy.scrollViewDelegateTarget
-        }
-        set {
-            super.delegate = self.delegateProxy
-            
-            if newValue is NestedScrollViewDelegateProxy {
-                return
-            }
-            self.delegateProxy.scrollViewDelegateTarget = newValue
-        }
-    }
-    
     private lazy var scrollSubviewDidScrollHandler: NestedScrollDidScrollHandler = {
-        return { [weak self] (scrollView) in
-            guard let self = self else {
-                return
-            }
+        return { [weak self] _ in
+            guard let self = self else { return }
             self.handleDidScoll()
         }
     }()
     
-    private lazy var delegateProxy: NestedScrollViewDelegateProxy = {
-        return NestedScrollViewDelegateProxy(interceptor: self)
-    }()
+    private var didScrollCancellable: JSNotificationCancellable?
     
-    private var isNeedsHandleScolling: Bool = false
-    private var isUpdatingContentSize: Bool = false
+    private var boundsSize: CGSize = .zero
+    private var isNeedsLayout: Bool = true
     
-    public override init(frame: CGRect) {
-        super.init(frame: frame)
+    @objc public init() {
+        super.init(frame: .zero)
         self.didInitialize()
     }
     
-    public required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        self.didInitialize()
+    @available(*, unavailable, message: "use init()")
+    required public init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
     
-    private func didInitialize() {
-        self.addSubview(self.containerView)
-        
+    open func didInitialize() {
         self.contentInsetAdjustmentBehavior = .never
+        self.alwaysBounceHorizontal = false
         self.alwaysBounceVertical = true
         self.bounces = true
         self.contentInset = .zero
-        self.delegate = self.delegateProxy
+        
+        self.addSubview(self.containerView)
+        
+        self.didScrollCancellable = self.js_addDidScrollSubscriber {
+            guard let scrollView = $0 as? NestedScrollView else {
+                return
+            }
+            scrollView.handleDidScoll()
+        }
     }
     
-    public override func layoutSubviews() {
+    open override func layoutSubviews() {
         super.layoutSubviews()
         let bounds = CGRect(
             x: 0.0,
             y: 0.0,
-            width: self.bounds.width - JSUIEdgeInsetsGetHorizontalValue(self.adjustedContentInset),
+            width: self.bounds.width - self.adjustedContentInset.jsc.horizontal,
             height: self.bounds.height
         )
-        
-        let headerHeight = {
-            var height = self.calculateHeight(for: self.headerView)
-            if self.headerScrollView != nil {
-                height = min(height, bounds.height)
-            }
-            return height
-        }()
-        self.headerView?.frame = JSCGRectSetHeight(bounds, headerHeight)
-        
-        let middleHeight = self.calculateHeight(for: self.middleView)
-        self.middleView?.frame = JSCGRectSetHeight(JSCGRectSetY(bounds, headerHeight), middleHeight)
-        
-        let floatingHeight = self.calculateHeight(for: self.floatingView)
-        self.floatingView?.js_frameApplyTransform = JSCGRectSetHeight(JSCGRectSetY(bounds, headerHeight + middleHeight), floatingHeight)
-        
-        let contentHeight = {
-            var height = self.calculateHeight(for: self.contentView)
-            if self.contentScrollView != nil {
-                height = min(height, bounds.height)
-            }
-            return height
-        }()
-        self.contentView?.frame = JSCGRectSetHeight(JSCGRectSetY(bounds, headerHeight + middleHeight + floatingHeight), contentHeight)
-        
-        self.containerView.js_frameApplyTransform = JSCGRectSetHeight(bounds, headerHeight + middleHeight + floatingHeight + contentHeight)
-        
-        self.updateScrollSettings()
-        
-        let isContentSizeChanged = self.updateContentSize()
-        if isContentSizeChanged || self.isNeedsHandleScolling {
-            self.isNeedsHandleScolling = false
+        if self.isNeedsLayout || self.boundsSize.jsc.estimated() != bounds.size.jsc.estimated() {
+            self.isNeedsLayout = false
+            self.boundsSize = bounds.size
             
-            self.handleDidScoll()
+            let headerHeight = {
+                var height = self.calculateHeight(for: self.headerView)
+                if self.headerScrollView != nil {
+                    height = min(height, bounds.height)
+                }
+                return height
+            }()
+            self.headerView?.frame = CGRect(
+                x: bounds.minX,
+                y: bounds.minY,
+                width: bounds.width,
+                height: headerHeight
+            )
+            
+            let middleHeight = self.calculateHeight(for: self.middleView)
+            self.middleView?.frame = CGRect(
+                x: bounds.minX,
+                y: bounds.minY + headerHeight,
+                width: bounds.width,
+                height: middleHeight
+            )
+            
+            let floatingHeight = self.calculateHeight(for: self.floatingView)
+            self.floatingView?.js_frameApplyTransform = CGRect(
+                x: bounds.minX,
+                y: bounds.minY + headerHeight + middleHeight,
+                width: bounds.width,
+                height: floatingHeight
+            )
+            
+            let contentHeight = {
+                var height = self.calculateHeight(for: self.contentView)
+                if self.contentScrollView != nil {
+                    height = min(height, bounds.height)
+                }
+                return height
+            }()
+            self.contentView?.frame = CGRect(
+                x: bounds.minX,
+                y: bounds.minY + headerHeight + middleHeight + floatingHeight,
+                width: bounds.width,
+                height: contentHeight
+            )
+            
+            self.containerView.js_frameApplyTransform = CGRect(
+                x: bounds.minX,
+                y: bounds.minY,
+                width: bounds.width,
+                height: bounds.minY + headerHeight + middleHeight + floatingHeight + contentHeight
+            )
+            
+            self.updateScrollSettings()
+            
+            let isContentSizeChanged = self.updateContentSize()
+            if isContentSizeChanged {
+                self.handleDidScoll()
+            }
         }
+        
+        self.updateFloatingState()
+    }
+    
+    open override func touchesShouldCancel(in view: UIView) -> Bool {
+        // 默认情况下只有当view是非UIControl的时候才会返回YES，这里统一对UIControl也返回YES
+        guard view is UIControl else {
+            return super.touchesShouldCancel(in: view)
+        }
+        return true
+    }
+    
+    open override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
+        guard !super.accessibilityScroll(direction) else {
+            return true
+        }
+        
+        let contentOffset = { () -> CGPoint? in
+            let offset = self.bounds.height / 1.5
+            switch direction {
+            case .up:
+                return CGPoint(x: self.contentOffset.x, y: self.contentOffset.y - offset)
+            case .down:
+                return CGPoint(x: self.contentOffset.x, y: self.contentOffset.y + offset)
+            default:
+                return nil
+            }
+        }()
+        guard let contentOffset = contentOffset else {
+            return false
+        }
+        self.js_scroll(toOffset: contentOffset, animated: true)
+        UIAccessibility.post(notification: .pageScrolled, argument: nil)
+        return true
     }
     
 }
 
 extension NestedScrollView {
     
-    public func reload() {
-        self.isNeedsHandleScolling = true
+    @objc public func updateLayout() {
+        self.isNeedsLayout = true
         self.setNeedsLayout()
     }
     
+    @objc(scrollToHeaderViewWithOffset:animated:)
     public func scrollToHeaderView(with offset: CGPoint, animated: Bool) {
         var contentOffset = self.headerViewMinimumPosition
         contentOffset.x += offset.x
         contentOffset.y += offset.y
-        self.js_scrollTo(contentOffset, animated: animated)
+        self.js_scroll(toOffset: contentOffset, animated: animated)
     }
     
+    @objc(scrollToMiddleViewWithOffset:animated:)
     public func scrollToMiddleView(with offset: CGPoint, animated: Bool) {
         var contentOffset = self.middleViewMinimumPosition
         contentOffset.x += offset.x
         contentOffset.y += offset.y
-        self.js_scrollTo(contentOffset, animated: animated)
+        self.js_scroll(toOffset: contentOffset, animated: animated)
     }
     
+    @objc(scrollToContentViewWithOffset:animated:)
     public func scrollToContentView(with offset: CGPoint, animated: Bool) {
         var contentOffset = self.contentViewMinimumPosition
         contentOffset.x += offset.x
         contentOffset.y += offset.y
-        self.js_scrollTo(contentOffset, animated: animated)
+        self.js_scroll(toOffset: contentOffset, animated: animated)
     }
     
+    @objc(scrollToView:withOffset:animated:)
     public func scrollTo(_ view: UIView, with offset: CGPoint, animated: Bool) {
         if view == self.headerView || view == self.headerScrollView {
             self.scrollToHeaderView(with: offset, animated: animated)
@@ -187,18 +244,18 @@ extension NestedScrollView {
         }
     }
     
-    public var headerViewMinimumPosition: CGPoint {
+    @objc public var headerViewMinimumPosition: CGPoint {
         return self.js_minimumContentOffset
     }
     
-    public var middleViewMinimumPosition: CGPoint {
+    @objc public var middleViewMinimumPosition: CGPoint {
         return CGPoint(
             x: self.js_minimumContentOffset.x,
             y: self.js_minimumContentOffset.y + self.headerViewContentHeight
         )
     }
     
-    public var contentViewMinimumPosition: CGPoint {
+    @objc public var contentViewMinimumPosition: CGPoint {
         return CGPoint(
             x: self.js_minimumContentOffset.x,
             y: self.js_minimumContentOffset.y + self.headerViewContentHeight + (self.middleView?.bounds.height ?? 0) + self.adjustedContentInset.top - self.floatingOffset
@@ -210,7 +267,7 @@ extension NestedScrollView {
 extension NestedScrollView {
     
     private var headerScrollView: UIScrollView? {
-        guard let scrollView = self.headerView?.preferredScrollView(in: self) else {
+        guard let scrollView = self.headerView?.preferredScrollView?(in: self) else {
             return nil
         }
         return scrollView
@@ -221,9 +278,9 @@ extension NestedScrollView {
         var headerContentHeight = 0.0
         if let headerScrollView = self.headerScrollView {
             headerContentHeight = headerScrollView.contentSize.height
-            headerContentHeight += JSUIEdgeInsetsGetVerticalValue(headerScrollView.adjustedContentInset)
+            headerContentHeight += headerScrollView.adjustedContentInset.jsc.vertical
             /// 内容高度小于视图本身的高度时, 需要设置为视图本身的高度
-            headerContentHeight = max(headerContentHeight, headerHeight)
+            headerContentHeight = max(headerContentHeight.jsc.ceilPixelValue(), headerHeight)
         } else {
             headerContentHeight = headerHeight
         }
@@ -231,7 +288,7 @@ extension NestedScrollView {
     }
     
     private var contentScrollView: UIScrollView? {
-        guard let scrollView = self.contentView?.preferredScrollView(in: self) else {
+        guard let scrollView = self.contentView?.preferredScrollView?(in: self) else {
             return nil
         }
         return scrollView
@@ -242,34 +299,33 @@ extension NestedScrollView {
         var contentViewContentHeight = 0.0
         if let contentScrollView = self.contentScrollView {
             contentViewContentHeight = contentScrollView.contentSize.height
-            contentViewContentHeight += JSUIEdgeInsetsGetVerticalValue(contentScrollView.adjustedContentInset)
+            contentViewContentHeight += contentScrollView.adjustedContentInset.jsc.vertical
             /// 内容高度小于视图本身的高度时, 需要设置为视图本身的高度
-            contentViewContentHeight = max(contentViewContentHeight, contentViewHeight)
+            contentViewContentHeight = max(contentViewContentHeight.jsc.ceilPixelValue(), contentViewHeight)
         } else {
             contentViewContentHeight = contentViewHeight
         }
         return contentViewContentHeight
     }
     
-    private func calculateHeight(for subview: NestedScrollViewSupplementarySubview?) -> CGFloat {
+    private func calculateHeight(for subview: (UIView & NestedScrollViewSupplementarySubview)?) -> CGFloat {
         guard let subview = subview, subview.superview == self.containerView else {
             return 0
         }
         
-        var result = subview.preferredHeight(in: self)
+        var result = NestedScrollView.automaticDimension
+        if let height = subview.preferredHeight?(in: self) {
+            result = height
+        }
         if result < 0 {
-            if let scrollSubview = subview as? NestedScrollViewScrollSubview, let scrollView = scrollSubview.preferredScrollView(in: self) {
-                if scrollView.contentSize.height > 0 {
-                    result = scrollView.contentSize.height + JSUIEdgeInsetsGetVerticalValue(scrollView.adjustedContentInset)
-                } else {
-                    result = 0
-                }
+            if let scrollSubview = subview as? NestedScrollViewScrollSubview, let scrollView = scrollSubview.preferredScrollView?(in: self) {
+                result = scrollView.contentSize.height + scrollView.adjustedContentInset.jsc.vertical
             } else {
                 result = subview.sizeThatFits(self.bounds.size).height
                 result = result > 0 ? result : subview.bounds.height
             }
         }
-        return max(result, 0)
+        return max(result, 0).jsc.ceilPixelValue()
     }
     
     private func addSubview(_ newView: UIView?, oldView: UIView?) {
@@ -281,16 +337,16 @@ extension NestedScrollView {
                 self.containerView.addSubview(newView)
             }
             
-            self.setNeedsLayout()
+            self.updateLayout()
         }
         
-        let oldScrollView = (oldView as? NestedScrollViewScrollSubview)?.preferredScrollView(in: self)
-        let newScrollView = (newView as? NestedScrollViewScrollSubview)?.preferredScrollView(in: self)
-        if oldScrollView != newScrollView {
-            oldScrollView?.js_nestedScrollListener = nil
+        let oldScrollView = (oldView as? NestedScrollViewScrollSubview)?.preferredScrollView?(in: self)
+        let newScrollView = (newView as? NestedScrollViewScrollSubview)?.preferredScrollView?(in: self)
+        if let oldScrollView = oldScrollView, oldScrollView != newScrollView {
+            NestedScrollMediator.resetScrollView(oldScrollView)
         }
         if let newScrollView = newScrollView {
-            NestedScrollManager.handleScrollView(newScrollView, in: self, didScrollHandler: self.scrollSubviewDidScrollHandler)
+            NestedScrollMediator.handleScrollView(newScrollView, in: self, didScrollHandler: self.scrollSubviewDidScrollHandler)
         }
         
         /// floatingView
@@ -334,14 +390,11 @@ extension NestedScrollView {
         let floatingHeight = self.floatingView?.bounds.height ?? 0
         
         let contentSize = CGSize(width: self.bounds.width, height: headerContentHeight + middleHeight + floatingHeight + contentViewContentHeight)
-        if self.contentSize != contentSize {
-            self.isUpdatingContentSize = true
-            self.contentSize = contentSize
-            self.isUpdatingContentSize = false
-            return true
-        } else {
+        guard self.contentSize.jsc.estimated() != contentSize.jsc.estimated() else {
             return false
         }
+        self.contentSize = contentSize
+        return true
     }
     
     private func handleDidScoll() {
@@ -489,18 +542,39 @@ extension NestedScrollView {
         }
     }
     
-    private func updateScrollView(_ scrollView: UIScrollView, contentOffset: CGPoint) {
-        if scrollView.contentOffset != contentOffset {
-            scrollView.js_nestedScrollListener?.isUpdatingContentOffset = true
-            scrollView.contentOffset = contentOffset
-            scrollView.js_nestedScrollListener?.isUpdatingContentOffset = false
+    private func updateFloatingState() {
+        let isFloating = {
+            let boundsSize = self.bounds.size
+            let contentSize = self.contentSize
+            guard boundsSize.jsc.isValidated && contentSize.jsc.isValidated else {
+                return false
+            }
+            let headerHeight = self.headerView?.bounds.height ?? 0
+            let middleHeight = self.middleView?.bounds.height ?? 0
+            if headerHeight == 0 && middleHeight == 0 {
+                return true
+            } else {
+                return self.contentOffset.y >= self.contentViewMinimumPosition.y
+            }
+        }()
+        guard self.isFloating != isFloating else {
+            return
         }
+        self.isFloating = isFloating
+    }
+    
+    private func updateScrollView(_ scrollView: UIScrollView, contentOffset: CGPoint) {
+        guard scrollView.contentOffset.jsc.estimated() != contentOffset.jsc.estimated() else {
+            return
+        }
+        NestedScrollMediator.setContentOffset(contentOffset, for: scrollView)
     }
     
     private func updateView(_ view: UIView, translationY: CGFloat) {
-        if view.transform.ty != translationY {
-            view.transform = CGAffineTransform(translationX: view.transform.tx, y: translationY)
+        guard view.transform.ty.jsc.estimated() != translationY.jsc.estimated() else {
+            return
         }
+        view.transform = CGAffineTransform(translationX: view.transform.tx, y: translationY)
     }
     
     private func assertScrollView(_ scrollView: UIScrollView) {
@@ -513,7 +587,7 @@ extension NestedScrollView {
             assert(layout.estimatedItemSize == CGSize.zero, message)
         }
         
-        if JSCGSizeIsValidated(scrollView.bounds.size), let superview = scrollView.superview, JSCGSizeIsValidated(superview.bounds.size) && self.isDescendant(of: superview) {
+        if scrollView.bounds.size.jsc.isValidated, let superview = scrollView.superview, superview.bounds.size.jsc.isValidated && self.isDescendant(of: superview) {
             assert(scrollView.bounds.size == superview.bounds.size, "scrollView布局没有充满父视图，会造成滑动异常，请添加contentInst以设置其余的视图")
         }
 #endif
@@ -543,80 +617,6 @@ extension NestedScrollView: UIGestureRecognizerDelegate {
         } else {
             return false
         }
-    }
-    
-}
-
-extension NestedScrollView: UIScrollViewDelegate {
-    
-    public func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        if !self.isUpdatingContentSize {
-            self.handleDidScoll()
-        }
-        
-        self.delegateProxy.scrollViewDelegateTarget?.scrollViewDidScroll?(scrollView)
-    }
-    
-}
-
-extension NestedScrollView {
-    
-    public override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
-        guard !super.accessibilityScroll(direction) else {
-            return true
-        }
-        
-        let contentOffset = { () -> CGPoint? in
-            let offset = self.bounds.height / 1.5
-            switch direction {
-            case .up:
-                return CGPoint(x: self.contentOffset.x, y: self.contentOffset.y - offset)
-            case .down:
-                return CGPoint(x: self.contentOffset.x, y: self.contentOffset.y + offset)
-            default:
-                return nil
-            }
-        }()
-        guard let contentOffset = contentOffset else {
-            return false
-        }
-        self.js_scrollTo(contentOffset, animated: true)
-        UIAccessibility.post(notification: .pageScrolled, argument: nil)
-        return true
-    }
-    
-}
-
-private class NestedScrollViewDelegateProxy: JSCoreWeakProxy, UIScrollViewDelegate {
-    
-    weak var interceptor: NestedScrollView?
-    
-    weak var scrollViewDelegateTarget: UIScrollViewDelegate? {
-        get {
-            return self.target as? UIScrollViewDelegate
-        }
-        set {
-            self.target = newValue
-        }
-    }
-    
-    init(interceptor: NestedScrollView) {
-        super.init(target: nil)
-        self.interceptor = interceptor
-    }
-    
-    override func responds(to aSelector: Selector!) -> Bool {
-        if self.interceptor != nil, aSelector == #selector(UIScrollViewDelegate.scrollViewDidScroll(_:)) {
-            return true
-        }
-        return super.responds(to: aSelector)
-    }
-    
-    override func forwardingTarget(for aSelector: Selector) -> Any {
-        if let interceptor = self.interceptor, aSelector == #selector(UIScrollViewDelegate.scrollViewDidScroll(_:)) {
-            return interceptor
-        }
-        return super.forwardingTarget(for: aSelector)
     }
     
 }

@@ -14,7 +14,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
     
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        self.configureWindow()
+        self.configWindow()
         return true
     }
 
@@ -22,7 +22,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
 extension AppDelegate {
     
-    func configureWindow() -> Void {
+   private func configWindow() {
         self.window = UIWindow(frame: UIScreen.main.bounds)
         self.window?.rootViewController = QMUINavigationController(rootViewController: NestedScrollViewController())
         self.window?.makeKeyAndVisible()
