@@ -18,11 +18,11 @@ internal struct NestedScrollMediator {
         didScrollHandler: @escaping NestedScrollDidScrollHandler
     ) {
         let scrollListener = {
-            if let listener = scrollView.rm_nestedScrollListener {
+            if let listener = scrollView.js_nestedScrollListener {
                 return listener
             } else {
                 let listener = NestedScrollListener(scrollView: scrollView)
-                scrollView.rm_nestedScrollListener = listener
+                scrollView.js_nestedScrollListener = listener
                 return listener
             }
         }()
@@ -37,26 +37,23 @@ internal struct NestedScrollMediator {
             return
         }
         _JSNestedScrollViewMediator.shared.onceHook(
-            adjustedContentInset: {
-                $0.rm_nestedScrollListener?.nestedScrollView?.updateLayout()
-            },
             adjustContentOffset: {
-                $0.rm_nestedScrollListener?.isAdjustingContentOffset = !$1
+                $0.js_nestedScrollListener?.isAdjustingContentOffset = !$1
             },
             setContentOffset: {
-                $0.rm_nestedScrollListener?.callSetContentOffset($1, animated: $2)
+                $0.js_nestedScrollListener?.callSetContentOffset($1, animated: $2)
             }
         )
     }
     
     static func resetScrollView(_ scrollView: UIScrollView) {
-        scrollView.rm_nestedScrollListener?.setNestedScrollView(nil, didScrollHandler: nil)
+        scrollView.js_nestedScrollListener?.setNestedScrollView(nil, didScrollHandler: nil)
     }
     
     static func setContentOffset(_ contentOffset: CGPoint, for scrollView: UIScrollView) {
-        scrollView.rm_nestedScrollListener?.isUpdatingContentOffset = true
+        scrollView.js_nestedScrollListener?.isUpdatingContentOffset = true
         scrollView.contentOffset = contentOffset
-        scrollView.rm_nestedScrollListener?.isUpdatingContentOffset = false
+        scrollView.js_nestedScrollListener?.isUpdatingContentOffset = false
     }
     
     private init() {
@@ -67,7 +64,7 @@ internal struct NestedScrollMediator {
 
 extension UIScrollView {
     
-    fileprivate var rm_nestedScrollListener: NestedScrollListener? {
+    fileprivate var js_nestedScrollListener: NestedScrollListener? {
         get {
             return objc_getAssociatedObject(self, &AssociatedKeys.scrollListener) as? NestedScrollListener
         }
@@ -94,6 +91,7 @@ private final class NestedScrollListener {
     private var isAlreadyMonitor: Bool = false
     private var observations: [NSKeyValueObservation] = []
     private var didScrollCancellable: JSNotificationCancellable?
+    private var adjustedContentInsetCancellable: JSNotificationCancellable?
     
     fileprivate init(scrollView: UIScrollView) {
         self.bindingScrollView = scrollView
@@ -141,7 +139,7 @@ private final class NestedScrollListener {
         self.isAlreadyMonitor = true
         
         let changeHandler = { (scrollView: UIScrollView, equatable: @autoclosure () -> Bool) in
-            guard let scrollListener = scrollView.rm_nestedScrollListener, let nestedScrollView = scrollListener.nestedScrollView else {
+            guard let scrollListener = scrollView.js_nestedScrollListener, let nestedScrollView = scrollListener.nestedScrollView else {
                 return
             }
             guard !equatable() else {
@@ -160,10 +158,16 @@ private final class NestedScrollListener {
             })
         )
         self.didScrollCancellable = bindingScrollView.js_addDidScrollSubscriber {
-            guard let scrollListener = $0.rm_nestedScrollListener else {
+            guard let scrollListener = $0.js_nestedScrollListener else {
                 return
             }
             scrollListener.callDidScrollHandler()
+        }
+        self.adjustedContentInsetCancellable = bindingScrollView.js_addAdjustedContentInsetSubscriber {
+            guard let scrollListener = $0.js_nestedScrollListener, let nestedScrollView = scrollListener.nestedScrollView else {
+                return
+            }
+            nestedScrollView.updateLayout()
         }
     }
     
@@ -179,6 +183,8 @@ private final class NestedScrollListener {
         }
         self.didScrollCancellable?.cancel()
         self.didScrollCancellable = nil
+        self.adjustedContentInsetCancellable?.cancel()
+        self.adjustedContentInsetCancellable = nil
     }
     
 }

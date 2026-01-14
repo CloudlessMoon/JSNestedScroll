@@ -49,7 +49,7 @@ open class NestedScrollView: UIScrollView {
         }
     }
     
-    @objc public private(set) lazy var containerView: UIView = {
+    private lazy var containerView: UIView = {
         return UIView()
     }()
     
@@ -81,6 +81,12 @@ open class NestedScrollView: UIScrollView {
         self.alwaysBounceVertical = true
         self.bounces = true
         self.contentInset = .zero
+        if #available(iOS 26.0, *) {
+            self.topEdgeEffect.isHidden = true
+            self.leftEdgeEffect.isHidden = true
+            self.bottomEdgeEffect.isHidden = true
+            self.rightEdgeEffect.isHidden = true
+        }
         
         self.addSubview(self.containerView)
         
@@ -280,7 +286,7 @@ extension NestedScrollView {
             headerContentHeight = headerScrollView.contentSize.height
             headerContentHeight += headerScrollView.adjustedContentInset.jsc.vertical
             /// 内容高度小于视图本身的高度时, 需要设置为视图本身的高度
-            headerContentHeight = max(headerContentHeight.jsc.ceilPixelValue(), headerHeight)
+            headerContentHeight = max(headerContentHeight, headerHeight)
         } else {
             headerContentHeight = headerHeight
         }
@@ -301,7 +307,7 @@ extension NestedScrollView {
             contentViewContentHeight = contentScrollView.contentSize.height
             contentViewContentHeight += contentScrollView.adjustedContentInset.jsc.vertical
             /// 内容高度小于视图本身的高度时, 需要设置为视图本身的高度
-            contentViewContentHeight = max(contentViewContentHeight.jsc.ceilPixelValue(), contentViewHeight)
+            contentViewContentHeight = max(contentViewContentHeight, contentViewHeight)
         } else {
             contentViewContentHeight = contentViewHeight
         }
@@ -325,7 +331,7 @@ extension NestedScrollView {
                 result = result > 0 ? result : subview.bounds.height
             }
         }
-        return max(result, 0).jsc.ceilPixelValue()
+        return max(result, 0)
     }
     
     private func addSubview(_ newView: UIView?, oldView: UIView?) {
