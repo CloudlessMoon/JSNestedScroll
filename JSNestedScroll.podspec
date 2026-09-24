@@ -2,7 +2,7 @@ Pod::Spec.new do |s|
   s.name = "JSNestedScroll"
 
   s.version = "2.0.0"
-  s.platforms = { :ios => "15.0" }
+  s.platforms = { :ios => "17.0" }
   s.swift_versions = ["5.9"]
   s.requires_arc = true
 
